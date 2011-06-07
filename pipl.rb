@@ -47,10 +47,6 @@ puts "[#{self}] read: #{reader}"
     end
 end
 
-class Communication
-  attr :channel, :name
-end
-
 class PIPL
   class Step
     attr :sender, :reader
@@ -61,47 +57,39 @@ class PIPL
   end
 
   def initialize
-    @steps = []
+    @queue = []
     @step_number = 0
   end
 
   # running
   def run
-    @running = true
-    while @running
+    while running?
       step
     end
   end
 
   def running?
-    @running
+    @queue.count > 0
   end
 
   def step
     @step_number += 1
     step = dequeue_step
-    if step.nil?
-      @running = false
-    else
-      complete_step(step)
-    end
+    complete_step(step)
   end
 
-  private
-    def complete_step(step)
-      puts '%04i: %s -> %s' % [@step_number, step.sender.inspect, step.reader.inspect]
-    end
-
   # programming
-  public
-
   def enqueue_step(sender, reader)
-    @steps.push( PIPL::Step.new(sender, reader) )
+    @queue.push( PIPL::Step.new(sender, reader) )
   end
 
   private
     def dequeue_step
-      @steps.shift
+      @queue.shift
+    end
+
+    def complete_step(step)
+      puts '%04i: %s -> %s' % [@step_number, step.sender.inspect, step.reader.inspect]
     end
 end
 
