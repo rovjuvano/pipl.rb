@@ -68,9 +68,6 @@ class PIPL
   def initialize
     @steps = []
     @step_number = 0
-
-    @channels = []
-    @next_channel_id = 0
   end
 
   # running
@@ -103,16 +100,8 @@ class PIPL
   # programming
   public
   
-  def make_channel_reference
-    id = @next_channel_id
-    @next_channel_id += 1
-    @channels[id] = Channel.new
-    id
-  end
-
-  def send(channel_ref, sender)
-puts "sending [#{channel_ref}]: #{sender}"
-    channel = dereference_channel(channel_ref)
+  def send(channel, sender)
+puts "sending: #{sender}"
     if channel.waiting_for_send?
       reader = channel.dequeue_reader
       enqueue_step(sender, reader)
@@ -121,9 +110,8 @@ puts "sending [#{channel_ref}]: #{sender}"
     end
   end
 
-  def read(channel_ref, reader)
-puts "reading [#{channel_ref}]: #{reader}"
-    channel = dereference_channel(channel_ref)
+  def read(channel, reader)
+puts "reading: #{reader}"
     if channel.waiting_for_read?
       sender = channel.dequeue_sender
       enqueue_step(sender, reader)
@@ -141,46 +129,23 @@ puts "reading [#{channel_ref}]: #{reader}"
       @steps.shift
     end
 
-    def dereference_channel(channel_ref)
-      if @channels[channel_ref]
-        @channels[channel_ref]
-      else
-        raise ArgumentError, "Could not fine channel referenced by #{channel_ref}"
-      end
-    end
-
 end
 
 #describe "PIPL" do
 #  it "should do stuff" do
     @pipl = PIPL.new
-    @channel_ref = @pipl.make_channel_reference
-    @pipl.send(@channel_ref, "1")
+    @channel = Channel.new
+    @pipl.send(@channel, "1")
     @pipl.run
-    @pipl.send(@channel_ref, "2")
+    @pipl.send(@channel, "2")
     @pipl.run
-    @pipl.read(@channel_ref, "a")
+    @pipl.read(@channel, "a")
     @pipl.run
-
-    @channel_ref2 = @pipl.make_channel_reference
-    @pipl.send(@channel_ref2, "21")
+    @pipl.read(@channel, "b")
     @pipl.run
-    @pipl.send(@channel_ref2, "22")
+    @pipl.read(@channel, "c")
     @pipl.run
-    @pipl.read(@channel_ref2, "2a")
-    @pipl.run
-    @pipl.read(@channel_ref2, "2b")
-    @pipl.run
-    @pipl.read(@channel_ref2, "2c")
-    @pipl.run
-    @pipl.send(@channel_ref2, "23")
-    @pipl.run
-
-    @pipl.read(@channel_ref, "b")
-    @pipl.run
-    @pipl.read(@channel_ref, "c")
-    @pipl.run
-    @pipl.send(@channel_ref, "3")
+    @pipl.send(@channel, "3")
     @pipl.run
 #  end
 #end
