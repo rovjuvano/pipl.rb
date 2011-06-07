@@ -128,7 +128,39 @@ end
 #end
 
 
+### simplest pipl program
+# w(x).0 | w[z].0
+#
+# - z - Name
+# - w - Channel
+# - w(x).0 - Process - sends name on channel
+# - w[z].0 - Process - reads name on channel
 
+class ProcessSend
+  def initialize(w)
+    @w = w
+  end
 
+  def proceed
+    @w.send(:z)
+  end
+end
 
+class ProcessRead
+  def initialize(w)
+    @w = w
+  end
+
+  def proceed
+    @w.read(:x)
+  end
+end
+
+@w = Channel.new(@pipl)
+@p1 = ProcessSend.new(@w)
+@p2 = ProcessRead.new(@w)
+@p1.proceed
+@pipl.run()
+@p2.proceed
+@pipl.run()
 
