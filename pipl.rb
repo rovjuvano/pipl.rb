@@ -1,53 +1,53 @@
-class Channel
-  def initialize(pipl)
-    @pipl = pipl
-    @queue = []
-    @type = :none
-  end
-
-  def send(sender)
-puts "[#{self}] send: #{sender}"
-    if waiting_for_send?
-      reader = dequeue :reader
-      @pipl.enqueue_step(sender, reader)
-    else
-      enqueue(sender, :sender)
-    end
-  end
-
-  def read(reader)
-puts "[#{self}] read: #{reader}"
-    if waiting_for_read?
-      sender = dequeue :sender
-      @pipl.enqueue_step(sender, reader)
-    else
-      enqueue(reader, :reader)
-    end
-  end
-
-  private
-    def waiting_for_send?
-      @type == :reader
-    end
-
-    def waiting_for_read?
-      @type == :sender
-    end
-
-    def enqueue(item, type)
-      @queue.push(item)
-      @type = type
-    end
-
-    def dequeue(type)
-      if @queue.count <= 1
-        @type = :none
-      end
-      @queue.shift
-    end
-end
-
 class PIPL
+  class Channel
+    def initialize(pipl)
+      @pipl = pipl
+      @queue = []
+      @type = :none
+    end
+
+    def send(sender)
+puts "[#{self}] send: #{sender}"
+      if waiting_for_send?
+        reader = dequeue :reader
+        @pipl.enqueue_step(sender, reader)
+      else
+        enqueue(sender, :sender)
+      end
+    end
+
+    def read(reader)
+puts "[#{self}] read: #{reader}"
+      if waiting_for_read?
+        sender = dequeue :sender
+        @pipl.enqueue_step(sender, reader)
+      else
+        enqueue(reader, :reader)
+      end
+    end
+
+    private
+      def waiting_for_send?
+        @type == :reader
+      end
+
+      def waiting_for_read?
+        @type == :sender
+      end
+
+      def enqueue(item, type)
+        @queue.push(item)
+        @type = type
+      end
+
+      def dequeue(type)
+        if @queue.count <= 1
+          @type = :none
+        end
+        @queue.shift
+      end
+  end
+
   class Step
     attr :sender, :reader
     def initialize(sender, reader)
@@ -59,6 +59,10 @@ class PIPL
   def initialize
     @queue = []
     @step_number = 0
+  end
+
+  def make_channel
+    return PIPL::Channel.new self
   end
 
   # running
@@ -119,7 +123,7 @@ end
 
 
     @pipl = PIPL.new
-    @channel = Channel.new(@pipl)
+    @channel = @pipl.make_channel
     @channel.send( SendCharProcess.new(@channel, "1") )
     @pipl.run
     @channel.send( SendCharProcess.new(@channel, "2") )
@@ -127,7 +131,7 @@ end
     @channel.read( ReadCharProcess.new(@channel) )
     @pipl.run
 
-    @channel2 = Channel.new(@pipl)
+    @channel2 = @pipl.make_channel
     @channel2.read ReadCharProcess.new(@channel2)
     @pipl.run
     @channel2.read ReadCharProcess.new(@channel2)
@@ -199,7 +203,7 @@ class ProcessPrint
     end
 end
 
-@w = Channel.new(@pipl)
+@w = @pipl.make_channel
 @p1 = ProcessSendCharacters.new(@w, "Hello World\n")
 require 'stringio'
 out = 'OUTPUT: '
@@ -208,7 +212,7 @@ out = 'OUTPUT: '
 print "\n#{out}"
 
 # 3 senders - 3 readers - 1 channel
-@w = Channel.new(@pipl)
+@w = @pipl.make_channel
 @p1a = ProcessSendCharacters.new(@w, "Hello World")
 @p1b = ProcessSendCharacters.new(@w, "Goodbye all")
 @p1c = ProcessSendCharacters.new(@w, "foo bar baz")
@@ -226,7 +230,7 @@ outc = 'OUTPUT C: '
 print "\n#{outa}#{outb}#{outc}"
 
 # 3 senders - 1 reader - 1 channel
-@w = Channel.new(@pipl)
+@w = @pipl.make_channel
 @p1a = ProcessSendCharacters.new(@w, "HlWl")
 @p1b = ProcessSendCharacters.new(@w, "eood Goodbye all")
 @p1c = ProcessSendCharacters.new(@w, "l r")
@@ -238,7 +242,7 @@ out = 'OUTPUT: '
 print "\n#{out}"
 
 # 1 sender - 3 readers - 1 channel
-@w = Channel.new(@pipl)
+@w = @pipl.make_channel
 @p1 = ProcessSendCharacters.new(@w, "
 HGf
 eoo
