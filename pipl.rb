@@ -160,10 +160,10 @@ end
 # - w(x).0 - Process - sends name on channel
 # - w[z].0 - Process - reads name on channel
 
-class ProcessSend
-  def initialize(w)
+class ProcessSendCharacters
+  def initialize(w, string)
     @w = w
-    @c = "Hello World".split //
+    @c = string.split //
     proceed
   end
 
@@ -181,14 +181,15 @@ class ProcessSend
     end
 end
 
-class ProcessRead
-  def initialize(w)
+class ProcessPrint
+  def initialize(w, io)
     @w = w
+    @io = io
     proceed
   end
 
   def input(name)
-    puts "#{@w}: #{name}"
+    @io.print name
     proceed
   end
 
@@ -199,7 +200,10 @@ class ProcessRead
 end
 
 @w = Channel.new(@pipl)
-@p1 = ProcessSend.new(@w)
-@p2 = ProcessRead.new(@w)
+@p1 = ProcessSendCharacters.new(@w, "Hello World\n")
+require 'stringio'
+out = 'OUTPUT: '
+@p2 = ProcessPrint.new(@w, StringIO.new(out, 'a'))
 @pipl.run()
+print "\n#{out}"
 
