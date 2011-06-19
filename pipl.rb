@@ -207,3 +207,58 @@ out = 'OUTPUT: '
 @pipl.run()
 print "\n#{out}"
 
+# 3 senders - 3 readers - 1 channel
+@w = Channel.new(@pipl)
+@p1a = ProcessSendCharacters.new(@w, "Hello World")
+@p1b = ProcessSendCharacters.new(@w, "Goodbye all")
+@p1c = ProcessSendCharacters.new(@w, "foo bar baz")
+outa = 'OUTPUT A: '
+outb = 'OUTPUT B: '
+outc = 'OUTPUT C: '
+@p2a = ProcessPrint.new(@w, StringIO.new(outa, 'a'))
+@p2b = ProcessPrint.new(@w, StringIO.new(outb, 'a'))
+@p2c = ProcessPrint.new(@w, StringIO.new(outc, 'a'))
+@pipl.run()
+@p1d = ProcessSendCharacters.new(@w, " aaa\n")
+@p1e = ProcessSendCharacters.new(@w, " bbb\n")
+@p1f = ProcessSendCharacters.new(@w, " ccc\n")
+@pipl.run()
+print "\n#{outa}#{outb}#{outc}"
+
+# 3 senders - 1 reader - 1 channel
+@w = Channel.new(@pipl)
+@p1a = ProcessSendCharacters.new(@w, "HlWl")
+@p1b = ProcessSendCharacters.new(@w, "eood Goodbye all")
+@p1c = ProcessSendCharacters.new(@w, "l r")
+out = 'OUTPUT: '
+@p2 = ProcessPrint.new(@w, StringIO.new(out, 'a'))
+@pipl.run()
+@p1d = ProcessSendCharacters.new(@w, " foo bar baz\n")
+@pipl.run()
+print "\n#{out}"
+
+# 1 sender - 3 readers - 1 channel
+@w = Channel.new(@pipl)
+@p1 = ProcessSendCharacters.new(@w, "
+HGf
+eoo
+loo
+ld 
+obb
+ ya
+Wer
+o  
+rab
+lla
+dlz".gsub(/\n/m, '')
+)
+outa = 'OUTPUT A: '
+outb = 'OUTPUT B: '
+outc = 'OUTPUT C: '
+@p2a = ProcessPrint.new(@w, StringIO.new(outa, 'a'))
+@p2b = ProcessPrint.new(@w, StringIO.new(outb, 'a'))
+@p2c = ProcessPrint.new(@w, StringIO.new(outc, 'a'))
+@pipl.run()
+@p1d = ProcessSendCharacters.new(@w, "   abcabcabc\n\n\n")
+@pipl.run()
+print "\n#{outa}#{outb}#{outc}"
