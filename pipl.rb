@@ -89,40 +89,64 @@ class PIPL
     end
 
     def complete_step(step)
-      puts '%04i: %s -> %s' % [@step_number, step.sender.inspect, step.reader.inspect]
+      print '%04i: ' % [@step_number]
+      step.reader.input step.sender.output
     end
 end
 
 #describe "PIPL" do
 #  it "should do stuff" do
+class SendCharProcess
+  def initialize(w, c)
+    @w = w
+    @c = c
+  end
+
+  def output
+    @c
+  end
+end
+
+class ReadCharProcess
+  def initialize(w)
+    @w = w
+  end
+
+  def input(c)
+    puts "#{@w}: #{c}"
+  end
+end
+
+
     @pipl = PIPL.new
     @channel = Channel.new(@pipl)
-    @channel.send("1")
+    @channel.send( SendCharProcess.new(@channel, "1") )
     @pipl.run
-    @channel.send("2")
+    @channel.send( SendCharProcess.new(@channel, "2") )
     @pipl.run
-    @channel.read("a")
+    @channel.read( ReadCharProcess.new(@channel) )
     @pipl.run
 
     @channel2 = Channel.new(@pipl)
-    @channel2.send("21")
+    @channel2.read ReadCharProcess.new(@channel2)
     @pipl.run
-    @channel2.send("22")
+    @channel2.read ReadCharProcess.new(@channel2)
     @pipl.run
-    @channel2.read("2a")
+    @channel2.send SendCharProcess.new(@channel2, "a")
     @pipl.run
-    @channel2.read("2b")
+    @channel2.send SendCharProcess.new(@channel2, "b")
     @pipl.run
-    @channel2.read("2c")
-    @pipl.run
-    @channel2.send("23")
+    @channel2.read ReadCharProcess.new(@channel2)
     @pipl.run
 
-    @channel.read("b")
+    @channel.read( ReadCharProcess.new(@channel) )
     @pipl.run
-    @channel.read("c")
+    @channel.read( ReadCharProcess.new(@channel) )
     @pipl.run
-    @channel.send("3")
+    @channel.send( SendCharProcess.new(@channel, "3") )
+    @pipl.run
+
+    @channel2.send SendCharProcess.new(@channel2, "c")
     @pipl.run
 #  end
 #end
@@ -139,28 +163,43 @@ end
 class ProcessSend
   def initialize(w)
     @w = w
+    @c = "Hello World".split //
+    proceed
   end
 
-  def proceed
-    @w.send(:z)
+  def output
+    c = @c.shift
+    if @c.length > 0
+      proceed
+    end
+    return c
   end
+
+  private
+    def proceed
+      @w.send(self)
+    end
 end
 
 class ProcessRead
   def initialize(w)
     @w = w
+    proceed
   end
 
-  def proceed
-    @w.read(:x)
+  def input(name)
+    puts "#{@w}: #{name}"
+    proceed
   end
+
+  private
+    def proceed
+      @w.read(self)
+    end
 end
 
 @w = Channel.new(@pipl)
 @p1 = ProcessSend.new(@w)
 @p2 = ProcessRead.new(@w)
-@p1.proceed
-@pipl.run()
-@p2.proceed
 @pipl.run()
 
