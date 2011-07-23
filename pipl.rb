@@ -266,3 +266,88 @@ outc = 'OUTPUT C: '
 @p1d = ProcessSendCharacters.new(@w, "   abcabcabc\n\n\n")
 @pipl.run()
 print "\n#{outa}#{outb}#{outc}"
+
+
+### simple adder program
+# p[s].0 | a(1).a(2).a(p).0 | a[m].a[n].a[o].o(m+n).0
+#
+# p - name of print string process
+# a - name of adder process
+# 1,2 - names for numbers
+#
+# a(1) - sends 1 on channel a
+# a(2) - sends 2 on channel a
+# a(p) - sends name of print string process on channel a
+#
+# a[m] - reads number from channel a
+# a[n] - reads number from channel a
+# a[o] - reads name of process to send output from channel a
+# o(m+n) - sends summed result on channel referenced by o
+
+class ProcessSendToProcess
+  def initialize(p, *names)
+    @p = p
+    @names = names
+    proceed
+  end
+
+  def output
+    n = @names.shift
+    if @names.length > 0
+      proceed
+    end
+    n
+  end
+
+  private
+    def proceed
+      @p.send self
+    end
+end
+
+class ProcessAdder
+  def initialize(a)
+    @a = a
+    @state = -4
+    proceed
+  end
+
+  def input(name)
+    if (@state == -3)
+      @m = name
+    elsif (@state == -2)
+      @n = name
+    else (@state == -1)
+      @o = name
+    end
+    proceed
+  end
+
+  def output
+    @m + @n
+  end
+
+  private
+    def proceed
+      @state += 1
+      if @state < 0
+        @a.read self
+      else
+        @o.send self
+      end
+    end
+end
+
+def add(m, n)
+  @p = @pipl.make_channel
+  out = "OUTPUT: #{m} + #{n} = "
+  ProcessPrint.new(@p, StringIO.new(out, 'a'))
+  @a = @pipl.make_channel
+  ProcessSendToProcess.new(@a, m, n, @p)
+  ProcessAdder.new(@a)
+  @pipl.run()
+  print "\n#{out}"
+end
+add(1, 2)
+add(2, 3)
+add(3, 4)
