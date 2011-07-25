@@ -48,6 +48,99 @@ puts "[#{self}] read: #{reader}"
       end
   end
 
+  class Reference
+    attr_accessor :value
+    def initialize(value)
+      @value = value
+    end
+  end
+
+  class SequenceProcess
+    class SendStep
+      def initialize(channel_ref, name_ref)
+        @channel_ref = channel_ref
+        @name_ref = name_ref
+      end
+      def output
+        @name_ref.value
+      end
+      def proceed(sequence)
+        @channel_ref.value.send sequence
+      end
+    end
+
+    class ReadStep
+      def initialize(channel_ref, name_ref)
+        @channel_ref = channel_ref
+        @name_ref = name_ref
+      end
+      def input(name)
+        @name_ref.value = name
+      end
+      def proceed(sequence)
+        @channel_ref.value.read sequence
+      end
+    end
+
+    class FunctionStep
+      def initialize(function, args)
+        @function = function
+        @args = args
+      end
+      def proceed(sequence)
+        @function.call(*@args)
+        sequence.proceed
+      end
+    end
+
+    def initialize
+      @steps = []
+      @i = 0
+      @refs = []
+    end
+
+    def add_channel(channel=nil)
+      id = @refs.length
+      @refs[id] = PIPL::Reference.new(channel)
+      id
+    end
+
+    def add_send(channel_id, name_id)
+      @steps << PIPL::SequenceProcess::SendStep.new(@refs[channel_id], @refs[name_id])
+    end
+
+    def add_read(channel_id, name_id=nil)
+      name_id ||= self.add_channel
+      @steps << PIPL::SequenceProcess::ReadStep.new(@refs[channel_id], @refs[name_id])
+      name_id
+    end
+
+    def add_function(function, *ids)
+      args = ids.map { |id| @refs[id] }
+      @steps << PIPL::SequenceProcess::FunctionStep.new(function, args)
+      self
+    end
+
+    def proceed
+      if @i < @steps.length
+        @step = @steps[@i]
+        @i += 1
+        @step.proceed self
+      end
+    end
+
+    def output
+      out = @step.output
+      proceed
+      out
+    end
+
+    def input(name)
+      @step.input name
+      proceed
+    end
+  end
+
   class Step
     attr :sender, :reader
     def initialize(sender, reader)
@@ -63,6 +156,10 @@ puts "[#{self}] read: #{reader}"
 
   def make_channel
     return PIPL::Channel.new self
+  end
+
+  def make_sequence
+    return PIPL::SequenceProcess.new
   end
 
   # running
@@ -155,7 +252,6 @@ end
 #  end
 #end
 
-
 ### simplest pipl program
 # w(x).0 | w[z].0
 #
@@ -163,87 +259,79 @@ end
 # - w - Channel
 # - w(x).0 - Process - sends name on channel
 # - w[z].0 - Process - reads name on channel
-
-class ProcessSendCharacters
-  def initialize(w, string)
-    @w = w
-    @c = string.split //
-    proceed
-  end
-
-  def output
-    c = @c.shift
-    if @c.length > 0
-      proceed
-    end
-    return c
-  end
-
-  private
-    def proceed
-      @w.send(self)
-    end
-end
-
-class ProcessPrint
-  def initialize(w, io)
-    @w = w
-    @io = io
-    proceed
-  end
-
-  def input(name)
-    @io.print name
-    proceed
-  end
-
-  private
-    def proceed
-      @w.read(self)
-    end
-end
-
-@w = @pipl.make_channel
-@p1 = ProcessSendCharacters.new(@w, "Hello World\n")
 require 'stringio'
-out = 'OUTPUT: '
-@p2 = ProcessPrint.new(@w, StringIO.new(out, 'a'))
-@pipl.run()
-print "\n#{out}"
 
-# 3 senders - 3 readers - 1 channel
-@w = @pipl.make_channel
-@p1a = ProcessSendCharacters.new(@w, "Hello World")
-@p1b = ProcessSendCharacters.new(@w, "Goodbye all")
-@p1c = ProcessSendCharacters.new(@w, "foo bar baz")
-outa = 'OUTPUT A: '
-outb = 'OUTPUT B: '
-outc = 'OUTPUT C: '
-@p2a = ProcessPrint.new(@w, StringIO.new(outa, 'a'))
-@p2b = ProcessPrint.new(@w, StringIO.new(outb, 'a'))
-@p2c = ProcessPrint.new(@w, StringIO.new(outc, 'a'))
-@pipl.run()
-@p1d = ProcessSendCharacters.new(@w, " aaa\n")
-@p1e = ProcessSendCharacters.new(@w, " bbb\n")
-@p1f = ProcessSendCharacters.new(@w, " ccc\n")
-@pipl.run()
-print "\n#{outa}#{outb}#{outc}"
+def make_send_characters_process(ch, string)
+  ps = @pipl.make_sequence
+  w = ps.add_channel ch
+  string.split(//).each do |c|
+    ps.add_send(w, ps.add_channel(c))
+  end
+  ps
+end
 
-# 3 senders - 1 reader - 1 channel
-@w = @pipl.make_channel
-@p1a = ProcessSendCharacters.new(@w, "HlWl")
-@p1b = ProcessSendCharacters.new(@w, "eood Goodbye all")
-@p1c = ProcessSendCharacters.new(@w, "l r")
-out = 'OUTPUT: '
-@p2 = ProcessPrint.new(@w, StringIO.new(out, 'a'))
-@pipl.run()
-@p1d = ProcessSendCharacters.new(@w, " foo bar baz\n")
-@pipl.run()
-print "\n#{out}"
+def make_print_process(io, ch, count)
+  ps = @pipl.make_sequence
+  w = ps.add_channel ch
+  c = ps.add_channel
+  count.times do
+    ps.add_read(w, c)
+    ps.add_function(lambda { |c| io.print c.value }, c)
+  end
+  ps
+end
 
-# 1 sender - 3 readers - 1 channel
+puts "\n-- send characters - 1 sender/1 reader - 1 channel"
 @w = @pipl.make_channel
-@p1 = ProcessSendCharacters.new(@w, "
+@s = "Hello World\n"
+out = "OUTPUT: "
+make_send_characters_process(@w, @s).proceed
+make_print_process(StringIO.new(out, 'a'), @w, @s.length).proceed
+@pipl.run
+print out
+
+puts "\n-- send characters - 3 senders/3 readers - 1 channel"
+outa = "OUTPUT A: "
+outb = "OUTPUT B: "
+outc = "OUTPUT C: "
+count = 16
+
+@w = @pipl.make_channel
+make_send_characters_process(@w, "Hello World").proceed
+make_send_characters_process(@w, "Goodbye all").proceed
+make_send_characters_process(@w, "foo bar baz").proceed
+
+make_print_process(StringIO.new(outa, 'a'), @w, count).proceed
+make_print_process(StringIO.new(outb, 'a'), @w, count).proceed
+make_print_process(StringIO.new(outc, 'a'), @w, count).proceed
+@pipl.run
+
+make_send_characters_process(@w, " aaa\n").proceed
+make_send_characters_process(@w, " bbb\n").proceed
+make_send_characters_process(@w, " ccc\n").proceed
+@pipl.run
+print "#{outa}#{outb}#{outc}"
+
+puts "\n-- send characters - 3 senders/1 reader - 1 channel"
+out = "OUTPUT: "
+@w = @pipl.make_channel
+make_send_characters_process(@w, "HlWl").proceed
+make_send_characters_process(@w, "eood Goodbye all").proceed
+make_send_characters_process(@w, "l r").proceed
+make_print_process(StringIO.new(out, 'a'), @w, 37).proceed
+@pipl.run
+make_send_characters_process(@w, " foo bar baz\n").proceed
+@pipl.run
+print out
+
+puts "\n-- send characters - 1 sender/3 readers - 1 channel"
+outa = "OUTPUT A: "
+outb = "OUTPUT B: "
+outc = "OUTPUT C: "
+count = 16
+
+@w = @pipl.make_channel
+@s = "
 HGf
 eoo
 loo
@@ -255,18 +343,14 @@ o
 rab
 lla
 dlz".gsub(/\n/m, '')
-)
-outa = 'OUTPUT A: '
-outb = 'OUTPUT B: '
-outc = 'OUTPUT C: '
-@p2a = ProcessPrint.new(@w, StringIO.new(outa, 'a'))
-@p2b = ProcessPrint.new(@w, StringIO.new(outb, 'a'))
-@p2c = ProcessPrint.new(@w, StringIO.new(outc, 'a'))
-@pipl.run()
-@p1d = ProcessSendCharacters.new(@w, "   abcabcabc\n\n\n")
-@pipl.run()
-print "\n#{outa}#{outb}#{outc}"
-
+make_send_characters_process(@w, @s).proceed
+make_print_process(StringIO.new(outa, 'a'), @w, count).proceed
+make_print_process(StringIO.new(outb, 'a'), @w, count).proceed
+make_print_process(StringIO.new(outc, 'a'), @w, count).proceed
+@pipl.run
+make_send_characters_process(@w, "   abcabcabc\n\n\n").proceed
+@pipl.run
+print "#{outa}#{outb}#{outc}"
 
 ### simple adder program
 # p[s].0 | a(1).a(2).a(p).0 | a[m].a[n].a[o].o(m+n).0
@@ -283,71 +367,39 @@ print "\n#{outa}#{outb}#{outc}"
 # a[n] - reads number from channel a
 # a[o] - reads name of process to send output from channel a
 # o(m+n) - sends summed result on channel referenced by o
-
-class ProcessSendToProcess
-  def initialize(p, *names)
-    @p = p
-    @names = names
-    proceed
-  end
-
-  def output
-    n = @names.shift
-    if @names.length > 0
-      proceed
-    end
-    n
-  end
-
-  private
-    def proceed
-      @p.send self
-    end
-end
-
-class ProcessAdder
-  def initialize(a)
-    @a = a
-    @state = -4
-    proceed
-  end
-
-  def input(name)
-    if (@state == -3)
-      @m = name
-    elsif (@state == -2)
-      @n = name
-    else (@state == -1)
-      @o = name
-    end
-    proceed
-  end
-
-  def output
-    @m + @n
-  end
-
-  private
-    def proceed
-      @state += 1
-      if @state < 0
-        @a.read self
-      else
-        @o.send self
-      end
-    end
-end
-
-def add(m, n)
+puts "\n-- add two numbers"
+def add2(i1, i2)
   @p = @pipl.make_channel
-  out = "OUTPUT: #{m} + #{n} = "
-  ProcessPrint.new(@p, StringIO.new(out, 'a'))
-  @a = @pipl.make_channel
-  ProcessSendToProcess.new(@a, m, n, @p)
-  ProcessAdder.new(@a)
-  @pipl.run()
-  print "\n#{out}"
+  @w = @pipl.make_channel
+
+  @puts = @pipl.make_sequence
+  p = @puts.add_channel @p
+  c = @puts.add_read(p)
+  @puts.add_function(lambda { |c| puts "OUTPUT #{i1} + #{i2} = #{c.value}" }, c)
+
+  @s1 = @pipl.make_sequence
+  w = @s1.add_channel @w
+  n1 = @s1.add_channel i1
+  n2 = @s1.add_channel i2
+  p = @s1.add_channel @p
+  @s1.add_send(w, n1)
+  @s1.add_send(w, n2)
+  @s1.add_send(w, p)
+
+  @s2 = @pipl.make_sequence
+  w = @s2.add_channel @w
+  acc = @s2.add_channel
+  m = @s2.add_read(w)
+  n = @s2.add_read(w)
+  o = @s2.add_read(w)
+  @s2.add_function(lambda { |m, n, acc| acc.value = m.value + n.value }, m, n, acc)
+  @s2.add_send(o, acc)
+
+  @puts.proceed
+  @s1.proceed
+  @s2.proceed
+  @pipl.run
 end
-add(1, 2)
-add(2, 3)
-add(3, 4)
+add2(1,2)
+add2(2,3)
+add2(3,4)
