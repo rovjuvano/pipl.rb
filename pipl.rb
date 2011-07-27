@@ -93,32 +93,25 @@ puts "[#{self}] read: #{reader}"
       end
     end
 
-    def initialize
+    def initialize(pipl)
+      @pipl = pipl
       @steps = []
       @i = 0
-      @refs = []
+      @refs = {}
     end
 
-    def add_channel(channel=nil)
-      id = @refs.length
-      @refs[id] = PIPL::Reference.new(channel)
-      id
+    def add_send(channel, name)
+      @steps << PIPL::SequenceProcess::SendStep.new(get_ref(channel), get_ref(name))
     end
 
-    def add_send(channel_id, name_id)
-      @steps << PIPL::SequenceProcess::SendStep.new(@refs[channel_id], @refs[name_id])
+    def add_read(channel, name=nil)
+      name ||= PIPL::Channel.new @pipl
+      @steps << PIPL::SequenceProcess::ReadStep.new(get_ref(channel), get_ref(name))
+      name
     end
 
-    def add_read(channel_id, name_id=nil)
-      name_id ||= self.add_channel
-      @steps << PIPL::SequenceProcess::ReadStep.new(@refs[channel_id], @refs[name_id])
-      name_id
-    end
-
-    def add_function(function, *ids)
-      args = ids.map { |id| @refs[id] }
-      @steps << PIPL::SequenceProcess::FunctionStep.new(function, args)
-      self
+    def add_function(function, *channels)
+      @steps << PIPL::SequenceProcess::FunctionStep.new(function, get_refs(channels))
     end
 
     def proceed
@@ -139,6 +132,15 @@ puts "[#{self}] read: #{reader}"
       @step.input name
       proceed
     end
+
+    private
+      def get_ref(channel)
+        @refs[channel] ||= PIPL::Reference.new(channel)
+      end
+
+      def get_refs(channels)
+        args = channels.map { |ch| get_ref(ch) }
+      end
   end
 
   class Step
@@ -159,7 +161,7 @@ puts "[#{self}] read: #{reader}"
   end
 
   def make_sequence
-    return PIPL::SequenceProcess.new
+    return PIPL::SequenceProcess.new self
   end
 
   # running
@@ -261,19 +263,17 @@ end
 # - w[z].0 - Process - reads name on channel
 require 'stringio'
 
-def make_send_characters_process(ch, string)
+def make_send_characters_process(w, string)
   ps = @pipl.make_sequence
-  w = ps.add_channel ch
   string.split(//).each do |c|
-    ps.add_send(w, ps.add_channel(c))
+    ps.add_send(w, c)
   end
   ps
 end
 
-def make_print_process(io, ch, count)
+def make_print_process(io, w, count)
   ps = @pipl.make_sequence
-  w = ps.add_channel ch
-  c = ps.add_channel
+  c = @pipl.make_channel
   count.times do
     ps.add_read(w, c)
     ps.add_function(lambda { |c| io.print c.value }, c)
@@ -368,30 +368,24 @@ print "#{outa}#{outb}#{outc}"
 # a[o] - reads name of process to send output from channel a
 # o(m+n) - sends summed result on channel referenced by o
 puts "\n-- add two numbers"
-def add2(i1, i2)
+def add2(n1, n2)
   @p = @pipl.make_channel
   @w = @pipl.make_channel
 
   @puts = @pipl.make_sequence
-  p = @puts.add_channel @p
-  c = @puts.add_read(p)
-  @puts.add_function(lambda { |c| puts "OUTPUT #{i1} + #{i2} = #{c.value}" }, c)
+  c = @puts.add_read(@p)
+  @puts.add_function(lambda { |c| puts "OUTPUT #{n1} + #{n2} = #{c.value}" }, c)
 
   @s1 = @pipl.make_sequence
-  w = @s1.add_channel @w
-  n1 = @s1.add_channel i1
-  n2 = @s1.add_channel i2
-  p = @s1.add_channel @p
-  @s1.add_send(w, n1)
-  @s1.add_send(w, n2)
-  @s1.add_send(w, p)
+  @s1.add_send(@w, n1)
+  @s1.add_send(@w, n2)
+  @s1.add_send(@w, @p)
 
   @s2 = @pipl.make_sequence
-  w = @s2.add_channel @w
-  acc = @s2.add_channel
-  m = @s2.add_read(w)
-  n = @s2.add_read(w)
-  o = @s2.add_read(w)
+  acc = @pipl.make_channel
+  m = @s2.add_read(@w)
+  n = @s2.add_read(@w)
+  o = @s2.add_read(@w)
   @s2.add_function(lambda { |m, n, acc| acc.value = m.value + n.value }, m, n, acc)
   @s2.add_send(o, acc)
 
