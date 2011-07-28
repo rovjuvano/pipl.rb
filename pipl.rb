@@ -57,38 +57,39 @@ puts "[#{self}] read: #{reader}"
 
   class SequenceProcess
     class SendStep
-      def initialize(channel_ref, name_ref)
-        @channel_ref = channel_ref
-        @name_ref = name_ref
+      def initialize(channel_id, name_id)
+        @channel_id = channel_id
+        @name_id = name_id
       end
-      def output
-        @name_ref.value
+      def output(refs)
+        refs[@name_id].value
       end
-      def proceed(sequence)
-        @channel_ref.value.send sequence
+      def proceed(refs, sequence)
+        refs[@channel_id].value.send sequence
       end
     end
 
     class ReadStep
-      def initialize(channel_ref, name_ref)
-        @channel_ref = channel_ref
-        @name_ref = name_ref
+      def initialize(channel_id, name_id)
+        @channel_id = channel_id
+        @name_id = name_id
       end
-      def input(name)
-        @name_ref.value = name
+      def input(refs, name)
+        refs[@name_id].value = name
       end
-      def proceed(sequence)
-        @channel_ref.value.read sequence
+      def proceed(refs, sequence)
+        refs[@channel_id].value.read sequence
       end
     end
 
     class FunctionStep
-      def initialize(function, args)
+      def initialize(function, ids)
         @function = function
-        @args = args
+        @ids = ids || []
       end
-      def proceed(sequence)
-        @function.call(*@args)
+      def proceed(refs, sequence)
+        args = @ids.map { |id| refs[id] }
+        @function.call(*args)
         sequence.proceed
       end
     end
@@ -101,45 +102,43 @@ puts "[#{self}] read: #{reader}"
     end
 
     def add_send(channel, name)
-      @steps << PIPL::SequenceProcess::SendStep.new(get_ref(channel), get_ref(name))
+      @steps << PIPL::SequenceProcess::SendStep.new(make_ref(channel), make_ref(name))
     end
 
     def add_read(channel, name=nil)
       name ||= PIPL::Channel.new @pipl
-      @steps << PIPL::SequenceProcess::ReadStep.new(get_ref(channel), get_ref(name))
+      @steps << PIPL::SequenceProcess::ReadStep.new(make_ref(channel), make_ref(name))
       name
     end
 
     def add_function(function, *channels)
-      @steps << PIPL::SequenceProcess::FunctionStep.new(function, get_refs(channels))
+      channels.each { |ch| make_ref(ch) }
+      @steps << PIPL::SequenceProcess::FunctionStep.new(function, channels)
     end
 
     def proceed
       if @i < @steps.length
         @step = @steps[@i]
         @i += 1
-        @step.proceed self
+        @step.proceed @refs, self
       end
     end
 
     def output
-      out = @step.output
+      out = @step.output @refs
       proceed
       out
     end
 
     def input(name)
-      @step.input name
+      @step.input @refs, name
       proceed
     end
 
     private
-      def get_ref(channel)
+      def make_ref(channel)
         @refs[channel] ||= PIPL::Reference.new(channel)
-      end
-
-      def get_refs(channels)
-        args = channels.map { |ch| get_ref(ch) }
+        channel
       end
   end
 
