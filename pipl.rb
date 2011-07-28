@@ -142,6 +142,33 @@ puts "[#{self}] read: #{reader}"
       end
   end
 
+  class ReplicatingSequenceProcess < SequenceProcess
+    def proceed
+      if @i > 0
+        @i = 0
+        replicate.proceed
+      end
+      super
+    end
+
+    private
+      def replicate
+        copy = PIPL::SequenceProcess.new @pipl
+        copy.instance_variable_set('@steps', @steps)
+        copy.instance_variable_set('@i', 1)
+        copy.instance_variable_set('@refs', refs_copy)
+        copy
+      end
+
+      def refs_copy
+        copy = {}
+        @refs.each_pair do |key, ref|
+          copy[key] = PIPL::Reference.new(ref.value)
+        end
+        copy
+      end
+  end
+
   class Step
     attr :sender, :reader
     def initialize(sender, reader)
@@ -161,6 +188,10 @@ puts "[#{self}] read: #{reader}"
 
   def make_sequence
     return PIPL::SequenceProcess.new self
+  end
+
+  def make_replicating_sequence
+    return PIPL::ReplicatingSequenceProcess.new self
   end
 
   # running
@@ -270,13 +301,11 @@ def make_send_characters_process(w, string)
   ps
 end
 
-def make_print_process(io, w, count)
-  ps = @pipl.make_sequence
+def make_print_process(io, w)
+  ps = @pipl.make_replicating_sequence
   c = @pipl.make_channel
-  count.times do
-    ps.add_read(w, c)
-    ps.add_function(lambda { |c| io.print c.value }, c)
-  end
+  ps.add_read(w, c)
+  ps.add_function(lambda { |c| io.print c.value }, c)
   ps
 end
 
@@ -285,7 +314,7 @@ puts "\n-- send characters - 1 sender/1 reader - 1 channel"
 @s = "Hello World\n"
 out = "OUTPUT: "
 make_send_characters_process(@w, @s).proceed
-make_print_process(StringIO.new(out, 'a'), @w, @s.length).proceed
+make_print_process(StringIO.new(out, 'a'), @w).proceed
 @pipl.run
 print out
 
@@ -293,16 +322,15 @@ puts "\n-- send characters - 3 senders/3 readers - 1 channel"
 outa = "OUTPUT A: "
 outb = "OUTPUT B: "
 outc = "OUTPUT C: "
-count = 16
 
 @w = @pipl.make_channel
 make_send_characters_process(@w, "Hello World").proceed
 make_send_characters_process(@w, "Goodbye all").proceed
 make_send_characters_process(@w, "foo bar baz").proceed
 
-make_print_process(StringIO.new(outa, 'a'), @w, count).proceed
-make_print_process(StringIO.new(outb, 'a'), @w, count).proceed
-make_print_process(StringIO.new(outc, 'a'), @w, count).proceed
+make_print_process(StringIO.new(outa, 'a'), @w).proceed
+make_print_process(StringIO.new(outb, 'a'), @w).proceed
+make_print_process(StringIO.new(outc, 'a'), @w).proceed
 @pipl.run
 
 make_send_characters_process(@w, " aaa\n").proceed
@@ -317,7 +345,7 @@ out = "OUTPUT: "
 make_send_characters_process(@w, "HlWl").proceed
 make_send_characters_process(@w, "eood Goodbye all").proceed
 make_send_characters_process(@w, "l r").proceed
-make_print_process(StringIO.new(out, 'a'), @w, 37).proceed
+make_print_process(StringIO.new(out, 'a'), @w).proceed
 @pipl.run
 make_send_characters_process(@w, " foo bar baz\n").proceed
 @pipl.run
@@ -343,9 +371,9 @@ rab
 lla
 dlz".gsub(/\n/m, '')
 make_send_characters_process(@w, @s).proceed
-make_print_process(StringIO.new(outa, 'a'), @w, count).proceed
-make_print_process(StringIO.new(outb, 'a'), @w, count).proceed
-make_print_process(StringIO.new(outc, 'a'), @w, count).proceed
+make_print_process(StringIO.new(outa, 'a'), @w).proceed
+make_print_process(StringIO.new(outb, 'a'), @w).proceed
+make_print_process(StringIO.new(outc, 'a'), @w).proceed
 @pipl.run
 make_send_characters_process(@w, "   abcabcabc\n\n\n").proceed
 @pipl.run
