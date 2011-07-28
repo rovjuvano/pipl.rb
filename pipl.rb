@@ -169,6 +169,18 @@ puts "[#{self}] read: #{reader}"
       end
   end
 
+  class ParallelProcess
+    def initialize
+      @processes = []
+    end
+    def add_process(process)
+      @processes << process
+    end
+    def proceed
+      @processes.each { |p| p.proceed }
+    end
+  end
+
   class Step
     attr :sender, :reader
     def initialize(sender, reader)
@@ -194,8 +206,13 @@ puts "[#{self}] read: #{reader}"
     return PIPL::ReplicatingSequenceProcess.new self
   end
 
+  def make_parallel_process
+    return PIPL::ParallelProcess.new
+  end
+
   # running
-  def run
+  def run(process)
+    process.proceed
     while running?
       step
     end
@@ -250,37 +267,36 @@ class ReadCharProcess
   end
 end
 
-
     @pipl = PIPL.new
     @channel = @pipl.make_channel
     @channel.send( SendCharProcess.new(@channel, "1") )
-    @pipl.run
+    @pipl.step if @pipl.running?
     @channel.send( SendCharProcess.new(@channel, "2") )
-    @pipl.run
+    @pipl.step if @pipl.running?
     @channel.read( ReadCharProcess.new(@channel) )
-    @pipl.run
+    @pipl.step
 
     @channel2 = @pipl.make_channel
     @channel2.read ReadCharProcess.new(@channel2)
-    @pipl.run
+    @pipl.step if @pipl.running?
     @channel2.read ReadCharProcess.new(@channel2)
-    @pipl.run
+    @pipl.step if @pipl.running?
     @channel2.send SendCharProcess.new(@channel2, "a")
-    @pipl.run
+    @pipl.step
     @channel2.send SendCharProcess.new(@channel2, "b")
-    @pipl.run
+    @pipl.step
     @channel2.read ReadCharProcess.new(@channel2)
-    @pipl.run
+    @pipl.step if @pipl.running?
 
     @channel.read( ReadCharProcess.new(@channel) )
-    @pipl.run
+    @pipl.step
     @channel.read( ReadCharProcess.new(@channel) )
-    @pipl.run
+    @pipl.step if @pipl.running?
     @channel.send( SendCharProcess.new(@channel, "3") )
-    @pipl.run
+    @pipl.step
 
     @channel2.send SendCharProcess.new(@channel2, "c")
-    @pipl.run
+    @pipl.step
 #  end
 #end
 
@@ -311,11 +327,12 @@ end
 
 puts "\n-- send characters - 1 sender/1 reader - 1 channel"
 @w = @pipl.make_channel
+@p = @pipl.make_parallel_process
 @s = "Hello World\n"
 out = "OUTPUT: "
-make_send_characters_process(@w, @s).proceed
-make_print_process(StringIO.new(out, 'a'), @w).proceed
-@pipl.run
+@p.add_process make_send_characters_process(@w, @s)
+@p.add_process make_print_process(StringIO.new(out, 'a'), @w)
+@pipl.run @p
 print out
 
 puts "\n-- send characters - 3 senders/3 readers - 1 channel"
@@ -324,38 +341,40 @@ outb = "OUTPUT B: "
 outc = "OUTPUT C: "
 
 @w = @pipl.make_channel
-make_send_characters_process(@w, "Hello World").proceed
-make_send_characters_process(@w, "Goodbye all").proceed
-make_send_characters_process(@w, "foo bar baz").proceed
+@p1 = @pipl.make_parallel_process
+@p1.add_process make_send_characters_process(@w, "Hello World")
+@p1.add_process make_send_characters_process(@w, "Goodbye all")
+@p1.add_process make_send_characters_process(@w, "foo bar baz")
 
-make_print_process(StringIO.new(outa, 'a'), @w).proceed
-make_print_process(StringIO.new(outb, 'a'), @w).proceed
-make_print_process(StringIO.new(outc, 'a'), @w).proceed
-@pipl.run
+@p1.add_process make_print_process(StringIO.new(outa, 'a'), @w)
+@p1.add_process make_print_process(StringIO.new(outb, 'a'), @w)
+@p1.add_process make_print_process(StringIO.new(outc, 'a'), @w)
+@pipl.run @p1
 
-make_send_characters_process(@w, " aaa\n").proceed
-make_send_characters_process(@w, " bbb\n").proceed
-make_send_characters_process(@w, " ccc\n").proceed
-@pipl.run
+@p2 = @pipl.make_parallel_process
+@p2.add_process make_send_characters_process(@w, " aaa\n")
+@p2.add_process make_send_characters_process(@w, " bbb\n")
+@p2.add_process make_send_characters_process(@w, " ccc\n")
+@pipl.run @p2
 print "#{outa}#{outb}#{outc}"
 
 puts "\n-- send characters - 3 senders/1 reader - 1 channel"
 out = "OUTPUT: "
 @w = @pipl.make_channel
-make_send_characters_process(@w, "HlWl").proceed
-make_send_characters_process(@w, "eood Goodbye all").proceed
-make_send_characters_process(@w, "l r").proceed
-make_print_process(StringIO.new(out, 'a'), @w).proceed
-@pipl.run
-make_send_characters_process(@w, " foo bar baz\n").proceed
-@pipl.run
+@p1 = @pipl.make_parallel_process
+@p1.add_process make_send_characters_process(@w, "HlWl")
+@p1.add_process make_send_characters_process(@w, "eood Goodbye all")
+@p1.add_process make_send_characters_process(@w, "l r")
+@p1.add_process make_print_process(StringIO.new(out, 'a'), @w)
+@pipl.run @p1
+@p2 = make_send_characters_process(@w, " foo bar baz\n")
+@pipl.run @p2
 print out
 
 puts "\n-- send characters - 1 sender/3 readers - 1 channel"
 outa = "OUTPUT A: "
 outb = "OUTPUT B: "
 outc = "OUTPUT C: "
-count = 16
 
 @w = @pipl.make_channel
 @s = "
@@ -370,13 +389,14 @@ o
 rab
 lla
 dlz".gsub(/\n/m, '')
-make_send_characters_process(@w, @s).proceed
-make_print_process(StringIO.new(outa, 'a'), @w).proceed
-make_print_process(StringIO.new(outb, 'a'), @w).proceed
-make_print_process(StringIO.new(outc, 'a'), @w).proceed
-@pipl.run
-make_send_characters_process(@w, "   abcabcabc\n\n\n").proceed
-@pipl.run
+@p1 = @pipl.make_parallel_process
+@p1.add_process make_send_characters_process(@w, @s)
+@p1.add_process make_print_process(StringIO.new(outa, 'a'), @w)
+@p1.add_process make_print_process(StringIO.new(outb, 'a'), @w)
+@p1.add_process make_print_process(StringIO.new(outc, 'a'), @w)
+@pipl.run @p1
+@p2 = make_send_characters_process(@w, "   abcabcabc\n\n\n")
+@pipl.run @p2
 print "#{outa}#{outb}#{outc}"
 
 ### simple adder program
@@ -416,10 +436,11 @@ def add2(n1, n2)
   @s2.add_function(lambda { |m, n, acc| acc.value = m.value + n.value }, m, n, acc)
   @s2.add_send(o, acc)
 
-  @puts.proceed
-  @s1.proceed
-  @s2.proceed
-  @pipl.run
+  @p = @pipl.make_parallel_process
+  @p.add_process @puts
+  @p.add_process @s1
+  @p.add_process @s2
+  @pipl.run @p
 end
 add2(1,2)
 add2(2,3)
