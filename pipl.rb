@@ -143,19 +143,25 @@ puts "[#{self}] read: #{reader}"
   end
 
   class ReplicatingSequenceProcess < SequenceProcess
-    def proceed
-      if @i > 0
-        @i = 0
-        replicate.proceed
-      end
-      super
+    def output
+      out = replicate.output
+      @i = 0
+      proceed
+      out
+    end
+
+    def input(name)
+      replicate.input name
+      @i = 0
+      proceed
     end
 
     private
       def replicate
         copy = PIPL::SequenceProcess.new @pipl
         copy.instance_variable_set('@steps', @steps)
-        copy.instance_variable_set('@i', 1)
+        copy.instance_variable_set('@step', @steps[@i - 1])
+        copy.instance_variable_set('@i', @i)
         copy.instance_variable_set('@refs', refs_copy)
         copy
       end
@@ -320,6 +326,8 @@ end
 def make_print_process(io, w)
   ps = @pipl.make_replicating_sequence
   c = @pipl.make_channel
+  #n = 0
+  #ps.add_function(lambda { puts "#{c.object_id}: #{n}"; n += 1 })
   ps.add_read(w, c)
   ps.add_function(lambda { |c| io.print c.value }, c)
   ps
