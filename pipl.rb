@@ -31,6 +31,7 @@ puts "[#{self}] read: #{reader}"
     end
 
     def cancel(process)
+      #puts "cancelling #{process} at #{__LINE__}"
       @send_queue.delete process
       @read_queue.delete process
     end
@@ -68,6 +69,10 @@ puts "[#{self}] read: #{reader}"
       def proceed(refs, sequence)
         refs[@channel_id].value.send sequence
       end
+      def cancel(refs, sequence)
+        #puts "#{self} step: was not chosen at #{__LINE__}"
+        refs[@channel_id].value.cancel sequence
+      end
     end
 
     class ReadStep
@@ -80,6 +85,10 @@ puts "[#{self}] read: #{reader}"
       end
       def proceed(refs, sequence)
         refs[@channel_id].value.read sequence
+      end
+      def cancel(refs, sequence)
+        #puts "#{self} step: was not chosen at #{__LINE__}"
+        refs[@channel_id].value.cancel sequence
       end
     end
 
@@ -117,6 +126,15 @@ puts "[#{self}] read: #{reader}"
       @steps << PIPL::SequenceProcess::FunctionStep.new(function, channels)
     end
 
+    def set_choice(choice)
+      @choice = choice
+    end
+
+    def cancel
+      #puts "#{self}[#{@i}]: was not chosen at #{__LINE__}"
+      @step.cancel @refs, self
+    end
+
     def proceed
       if @i < @steps.length
         @step = @steps[@i]
@@ -126,12 +144,20 @@ puts "[#{self}] read: #{reader}"
     end
 
     def output
+      if @choice
+        @choice.chosen self
+        @choice = nil
+      end
       out = @step.output @refs
       proceed
       out
     end
 
     def input(name)
+      if @choice
+        @choice.chosen self
+        @choice = nil
+      end
       @step.input @refs, name
       proceed
     end
@@ -188,6 +214,30 @@ puts "[#{self}] read: #{reader}"
     end
   end
 
+  class ChoiceProcess
+    def initialize
+      @processes = []
+    end
+
+    def add_process(process)
+      @processes << process
+    end
+
+    def chosen(process)
+      #puts "#{process} was chosen at #{__LINE__}"
+      @processes.each do |p|
+        p.cancel unless p == process
+      end
+    end
+
+    def proceed
+      @processes.each do |p|
+        p.set_choice self
+        p.proceed
+      end
+    end
+  end
+
   def initialize
     @queue = []
     @step_number = 0
@@ -207,6 +257,10 @@ puts "[#{self}] read: #{reader}"
 
   def make_parallel_process
     return PIPL::ParallelProcess.new
+  end
+
+  def make_choice_process
+    return PIPL::ChoiceProcess.new
   end
 
   # running
@@ -469,3 +523,36 @@ end
 add2(1,2)
 add2(2,3)
 add2(3,4)
+
+puts "\n-- choice"
+def choice(i, n)
+  @cp = @pipl.make_choice_process
+  @choices = []
+  n.times do |j|
+    @w = @pipl.make_channel
+    @choices << @w
+
+    @n = @pipl.make_sequence
+    c = @n.add_read(@w)
+    @n.add_function(lambda { |c| puts "Choose #{j}: #{c.value}" }, c)
+    c = @n.add_read(@w)
+    @n.add_function(lambda { |c| puts "Choose #{j}: #{c.value}" }, c)
+
+    @cp.add_process @n
+  end
+
+  @s = @pipl.make_sequence
+  @s.add_send @choices[i], "chose #{i}"
+  @s.add_send @choices[i], "done"
+  (0...n).to_a.shuffle.each do |j|
+    @s.add_send @choices[j], "not chosen #{j}" if i != j
+  end
+
+  @p = @pipl.make_parallel_process
+  @p.add_process @cp
+  @p.add_process @s
+  @pipl.run @p
+end
+choice 0, 3
+choice 1, 3
+choice 2, 3
