@@ -2,49 +2,39 @@ class PIPL
   class Channel
     def initialize(pipl)
       @pipl = pipl
-      @queue = []
-      @type = :none
+      @send_queue = []
+      @read_queue = []
     end
 
     def send(sender)
 puts "[#{self}] send: #{sender}"
       if waiting_for_send?
-        reader = dequeue :reader
-        @pipl.enqueue_step(sender, reader)
-      else
-        enqueue(sender, :sender)
+        @pipl.enqueue_step self
       end
+      @send_queue << sender
     end
 
     def read(reader)
 puts "[#{self}] read: #{reader}"
       if waiting_for_read?
-        sender = dequeue :sender
-        @pipl.enqueue_step(sender, reader)
-      else
-        enqueue(reader, :reader)
+        @pipl.enqueue_step self
       end
+      @read_queue << reader
+    end
+
+    def sync
+      sender = @send_queue.shift
+      reader = @read_queue.shift
+      reader.input sender.output
     end
 
     private
       def waiting_for_send?
-        @type == :reader
+        @send_queue.length < @read_queue.length
       end
 
       def waiting_for_read?
-        @type == :sender
-      end
-
-      def enqueue(item, type)
-        @queue.push(item)
-        @type = type
-      end
-
-      def dequeue(type)
-        if @queue.count <= 1
-          @type = :none
-        end
-        @queue.shift
+        @read_queue.length < @send_queue.length
       end
   end
 
@@ -187,14 +177,6 @@ puts "[#{self}] read: #{reader}"
     end
   end
 
-  class Step
-    attr :sender, :reader
-    def initialize(sender, reader)
-      @sender = sender
-      @reader = reader
-    end
-  end
-
   def initialize
     @queue = []
     @step_number = 0
@@ -235,8 +217,8 @@ puts "[#{self}] read: #{reader}"
   end
 
   # programming
-  def enqueue_step(sender, reader)
-    @queue.push( PIPL::Step.new(sender, reader) )
+  def enqueue_step(channel)
+    @queue.push channel
   end
 
   private
@@ -244,9 +226,9 @@ puts "[#{self}] read: #{reader}"
       @queue.shift
     end
 
-    def complete_step(step)
+    def complete_step(channel)
       print '%04i: ' % [@step_number]
-      step.reader.input step.sender.output
+      channel.sync
     end
 end
 
