@@ -7,7 +7,7 @@ class PIPL
     end
 
     def send(sender)
-puts "[#{self}] send: #{sender}"
+#puts "[#{self}] send: #{sender}"
       if waiting_for_send?
         @pipl.enqueue_step self
       end
@@ -15,7 +15,7 @@ puts "[#{self}] send: #{sender}"
     end
 
     def read(reader)
-puts "[#{self}] read: #{reader}"
+#puts "[#{self}] read: #{reader}"
       if waiting_for_read?
         @pipl.enqueue_step self
       end
@@ -292,7 +292,7 @@ puts "[#{self}] read: #{reader}"
     end
 
     def complete_step(channel)
-      print '%04i: ' % [@step_number]
+      #print '%04i: ' % [@step_number]
       channel.sync
     end
 end
