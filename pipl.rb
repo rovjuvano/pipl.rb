@@ -23,9 +23,16 @@ puts "[#{self}] read: #{reader}"
     end
 
     def sync
-      sender = @send_queue.shift
-      reader = @read_queue.shift
-      reader.input sender.output
+      if has_active_steps?
+        sender = @send_queue.shift
+        reader = @read_queue.shift
+        reader.input sender.output
+      end
+    end
+
+    def cancel(process)
+      @send_queue.delete process
+      @read_queue.delete process
     end
 
     private
@@ -35,6 +42,10 @@ puts "[#{self}] read: #{reader}"
 
       def waiting_for_read?
         @read_queue.length < @send_queue.length
+      end
+
+      def has_active_steps?
+        @send_queue.length > 0 && @read_queue.length > 0
       end
   end
 
@@ -285,6 +296,28 @@ end
 
     @channel2.send SendCharProcess.new(@channel2, "c")
     @pipl.step
+
+puts "\n-- cancel"
+@ch = @pipl.make_channel
+
+@ch.send( SendCharProcess.new(@ch, "1") )
+@ps = SendCharProcess.new(@ch, "X1")
+@ch.send @ps
+@ch.send( SendCharProcess.new(@ch, "2") )
+@ch.send( SendCharProcess.new(@ch, "X2") )
+
+@ch.read( ReadCharProcess.new(@ch) )
+@pr = ReadCharProcess.new(@ch)
+@ch.read @pr
+@ch.read( ReadCharProcess.new(@ch) )
+
+@ch.cancel @ps
+@ch.cancel @pr
+@pipl.step
+@pipl.step
+@pipl.step # null step
+puts @pipl.running? ? 'still running' : 'stopped'
+
 #  end
 #end
 
@@ -296,6 +329,7 @@ end
 # - w(x).0 - Process - sends name on channel
 # - w[z].0 - Process - reads name on channel
 require 'stringio'
+@pipl = PIPL.new
 
 def make_send_characters_process(w, string)
   ps = @pipl.make_sequence
