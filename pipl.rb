@@ -20,9 +20,9 @@ class PIPL
       channel.send self
     end
 
-    def add_read(channel)
+    def add_read(channel, name=nil)
       @channel = channel
-      name = PIPL::Channel.new
+      name ||= PIPL::Channel.new
       channel.read self
       name
     end
@@ -39,20 +39,6 @@ class PIPL
     end
   end
 
-  class Parallel
-    def initialize
-      @processes = []
-    end
-
-    def add_process(process)
-      @processes << process
-    end
-
-    def proceed
-      @processes.each { |p| p.proceed }
-    end
-  end
-
   def create_channel
     return PIPL::Channel.new
   end
@@ -61,11 +47,7 @@ class PIPL
     return PIPL::Sequence.new
   end
 
-  def create_parallel_process
-    return PIPL::Parallel.new
-  end
-
-  def run(process)
-    process.proceed
+  def run(*processes)
+    processes.each { |p| p.proceed }
   end
 end
