@@ -1,0 +1,368 @@
+class PIPL
+  def initialize()
+    @engine = Engine.new
+    @main = ParallelProcess.new(@engine)
+  end
+
+  # Public: Create a new sequence of processes starting with a read.
+  def start_sequence_read(channel, replicate=nil)
+    @main.start_sequence_read(@engine, channel, replicate)
+  end
+
+  # Public: Create a new sequence of processes starting with a send.
+  def start_sequence_send(channel, name, replicate=nil)
+    @main.start_sequence_read(@engine, channel, name, replicate)
+  end
+
+  class Refs < Hash
+    def default=(key)
+      key
+    end
+    def dup
+      {}.merge self
+    end
+  end
+
+  # Public: Run to completion.
+  def run
+    @main.proceed(Refs.new)
+    @main = ParallelProcess.new(@engine)
+    @engine.run
+  end
+
+  class Engine
+    # Public: Handle new read request on channel from process.
+    def enqueue_reader(channel, process)
+      enqueue @readers, channel, process
+    end
+
+    # Public: Handle new send request on channel from process.
+    def enqueue_sender(channel, process)
+      enqueue @senders, channel, process
+    end
+
+    # Public: Handle removing alternate process after choice processes proceeds.
+    def dequeue_reader(channel, process)
+      dequeue @readers, channel, process
+    end
+
+    # Public: Handle removing alternate process after choice processes proceeds.
+    def dequeue_sender(channel, process)
+      dequeue @senders, channel, process
+    end
+
+    # Internal: enqueue helper
+    def enqueue(queue, channel, process)
+      ( queue[channel] ||= [] ) << process
+      enqueue_step channel
+    end
+
+    # Internal: dequeue helper
+    def dequeue(queue, channel, process)
+      queue[channel].delete(process)
+    end
+
+    # Internal: Enqueue step if necessary.
+    def enqueue_step(channel)
+      if @readers[channel].length > 0 && @senders[channel].length > 0
+        @queue << channel
+      end
+    end
+
+    # Public: Run to completion.
+    def run
+      while @queue.length > 0
+        step select(@queue)
+      end
+    end
+
+    # Internal: Complete send/read on channel.
+    def step(channel)
+      reader = select(@readers[channel])
+      sender = select(@senders[channel])
+      reader.read sender.send if reader && sender
+    end
+
+    # Internal: Remove process from queue for completing step.
+    def select(queue)
+      queue.delete_at rand(queue.length) # this is not correct
+    end
+  end
+
+  def nu()
+    Name.new
+  end
+
+  class SequenceBuilder
+    def initialize(pipl)
+      @pipl = pipl
+    end
+
+    def add_nu()
+      name = @pipl.nu
+      @steps << [:nu, name]
+      name
+    end
+
+    def add_read(channel)
+      name = add_nu
+      @steps << [:read, channel, name]
+      name
+    end
+
+    def add_send(channel, value)
+      @steps << [:send, channel, value]
+    end
+
+    def build()
+      SequentialProcess.new @steps
+    end
+  end
+
+  class SequentialProcess
+    def initialize(pipl, steps)
+      @pipl = pipl
+      @steps = steps.dup
+      @names = {}
+    end
+
+    def proceed
+      return unless @steps.length > 0
+
+      step = @steps.pop
+
+      case step[0]:
+      when :read
+        @name = step[2]
+        @pipl.enqueue_reader(step[1], self)
+      when :send
+        @value = @names[ step[2] ]
+        @pipl.enqueue_sender(step[1], self)
+      end
+    end
+
+    def output
+      value = @value
+      proceed
+      value
+    end
+
+    def input(value)
+      @names[@name] = value
+      proceed
+    end
+  end
+
+  ################################################################################
+
+  # Internal: Abstract parent class for Read and Send processes.
+  class SimpleProcess
+    def connect_read(channel, replicate=nil)
+      @next = ReadProcess.new(@pipl, channel, replicate)
+    end
+
+    def connect_send(channel, name, replicate=nil)
+      @next = SendProcess.new(@pipl, channel, name, replicate)
+    end
+
+    def connect_parallel
+      @next = ParallelProcess.new(@pipl)
+    end
+
+    def connect_choice
+      @next = ChoiceProcess.new(@pipl)
+    end
+  end
+
+  # Internal: Abstract parent class for Parallel and Choice processes.
+  class ComplexProcess
+    def initialize(pipl)
+      @pipl = pipl
+      @processes = []
+    end
+
+    # Public: Create a new sequence of processes starting with a read.
+    def start_sequence_read(channel, replicate=nil)
+      @processes << make_read(channel, replicate)
+      @processes.last
+    end
+
+    # Public: Create a new sequence of processes starting with a send.
+    def start_seqeuence_send(channel, name, replicate=nil)
+      @processes << make_send(channel, name, replicate)
+      @processes.last
+    end
+
+    def proceed
+      @processes.each { |p| p.proceed }
+    end
+  end
+
+  class ParallelProcess < ComplexProcess
+    def make_read(channel, replicate)
+      ReadProcess.new(@pipl, channel, replicate)
+    end
+
+    def make_send(channel, name, replicate)
+      SendProcess.new(@pipl, channel, name, replicate)
+    end
+  end
+
+  class ChoiceProcess < ComplexProcess
+    def make_read(channel, replicate)
+      ChoiceReadProcess.new(@pipl, self, channel, replicate)
+    end
+
+    def make_send(channel, name, replicate)
+      ChoiceSendProcess.new(@pipl, self, channel, name, replicate)
+    end
+
+    def notify
+      @processes.each { |p| p.kill }
+    end
+  end
+
+  # !a[x].x(a).0
+  #  x - value read in earlier process, namely a[x]
+  # !a[b] . ( b(b).0 | b[y].0 )
+  # !a[b] . ( b(b).0 + b[y].0 )
+  # @value[b] = a[b]
+  # send( @value[b], @value[b] )
+  # read( @value[b] )
+  # !a[x].a[x].0
+  class ReadProcess < SimpleProcess
+    def initialize(pipl, channel, replicate)
+      @pipl = pipl
+      @channel = channel
+      @replicate = replicate
+    end
+
+    def proceed
+      @pipl.enqueue_reader @channel, self
+    end
+
+    def read(value)
+      @value = value
+      @next.proceed if @next
+      proceed if @replicate
+    end
+  end
+
+  class SendProcess < SimpleProcess
+    def initialize(pipl, channel, name, replicate)
+      @pipl = pipl
+      @channel = channel
+      @name = name
+      @replicate = replicate
+    end
+
+    def proceed
+      @pipl.enqueue_sender @channel, self
+    end
+
+    def send
+      @next.proceed if @next
+      proceed if @replicate
+      @name
+    end
+  end
+
+  class ChoiceReadProcess < ReadProcess
+    # Override
+    def initialize(pipl, parent, channel, replicate)
+      super(pipl, channel, replicate)
+      @parent = parent
+    end
+
+    def kill
+      @pipl.dequeue_reader @channel, self
+    end
+
+    # Override
+    def input(value)
+      @parent.notify
+      super(value)
+    end
+  end
+
+  class ChoiceSendProcess < SendProcess
+    # Override
+    def initialize(pipl, parent, channel, name, replicate)
+      super(pipl, channel, name, replicate)
+      @parent = parent
+    end
+
+    def kill
+      @pipl.dequeue_sender @channel, self
+    end
+
+    # Override
+    def output
+      @parent.notify
+      super(value)
+    end
+  end
+
+  ################################################################################
+
+  class ReadProcess < SimpleProcess
+    def initialize(pipl, channel_id, name_id, replicate)
+      @pipl = pipl
+      @channel_id = channel_id
+      @name_id = name_id
+      @replicate = replicate
+    end
+
+    def proceed(refs)
+      @refs = ref
+      @pipl.enqueue_reader @refs[@channel_id], self
+    end
+
+    def read(value)
+      if @next
+        refs = @replicate ? @refs.dup : @refs
+        refs[@name_id] = value
+        @next.proceed(refs)
+      end
+      proceed(@refs) if @replicate
+    end
+  end
+
+  class SendProcess < SimpleProcess
+    def initialize(pipl, channel_id, name_id, replicate)
+      @pipl = pipl
+      @channel_id = channel_id
+      @name_id = name_id
+      @replicate = replicate
+    end
+
+    def proceed(refs)
+      @refs = refs
+      @pipl.enqueue_send @refs[@channel_id], self
+    end
+
+    def send()
+      if @next
+        refs = @replicate ? @refs.dup : @refs
+        @next.proceed(refs)
+      end
+      proceed(@refs) if @replicate
+      @refs[@name_id]
+    end
+  end
+
+  class ParallelProcess
+    def proceed(refs)
+      if @processes.length > 0
+        @processes.shift.proceed(refs)
+        @processes.each { |p| p.proceed(refs.dup) }
+      end
+    end
+  end
+
+  class ChoiceProcess
+    def proceed(refs)
+      @processes.each { |p| p.proceed(refs) }
+    end
+  end
+end
